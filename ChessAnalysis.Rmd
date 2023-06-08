@@ -1,0 +1,127 @@
+---
+title: "ChessAnalysis"
+author: "JuHyunJeon"
+date: "2023-05-29"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Study without any pgn
+
+```{r add-libraries}
+library(tidyverse)
+library(ggplot2)
+library(ggthemes)
+```
+
+## Including Plots
+
+You can also embed plots, for example:
+
+```{r get_data}
+df <- read.csv("game_counts.csv")
+df <- select(df, -c('X'))
+```
+
+
+```{r}
+df$Percentage <- df$Count / sum(df$Count) * 100
+df_order <- df %>% 
+            arrange(desc(Percentage)) %>%
+  slice(1:10)
+ggplot(df_order, aes(x = reorder(TimeControl, -Percentage), y = Percentage, fill = TimeControl))+ 
+  geom_bar(stat="identity") +
+  xlab("Time Controls") + 
+  ylab("Percentage of total games played")
+```
+```{r, read_dat}
+df <- read.csv("main_counts.csv", check.names=FALSE)
+colnames(df)[1] <- "index" 
+df <- df %>%
+   replace(is.na(.), 0) %>%
+   mutate(sum = rowSums(across(where(is.numeric))) / 2)
+df <- select(df, -c('index'))
+df <- df %>% filter(TimeControl %in% c('60+0', '180+0', '300+0', '600+0', '180+2', '120+1', '300+3'))
+df <- df %>% mutate(Decisive = case_when(Decisive == 0 | Decisive == 1 ~ 'Yes',
+                                         Decisive == 0.5 ~ 'No'))
+df$TimeControl <- factor(df$TimeControl, levels = c('60+0', '180+0', '300+0', '600+0', '180+2', '120+1', '300+3'))
+```
+## Get general visualizations
+
+
+### Termination
+
+majority of the data lies in normal(win or loss) or time forfeit
+abandoned etc only add up to 1% of the games
+
+```{r}
+df_vis <- df %>% group_by(TimeControl, Termination)%>%
+  summarise(sum = sum(sum), .groups = 'drop')
+df_vis <- df_vis %>% group_by(TimeControl) %>%
+  mutate(prop = sum(sum)) %>%
+  ungroup() %>%
+  mutate(prop = sum / prop * 100)
+ggplot(df_vis, aes(x = TimeControl, y = sum, fill = Termination)) + 
+  geom_col(position = "Dodge") + 
+  scale_x_discrete()
+df_vis %>% filter(Termination %in% c('Normal', 'Time forfeit')) %>%
+  ggplot(aes(x = TimeControl, y = sum, fill = Termination)) + 
+  geom_col(position = "Dodge") + 
+  scale_x_discrete()
+df_vis %>% filter(Termination %in% c('Abandoned', 'Rules infraction', 'Unterminated')) %>%
+  ggplot(aes(x = TimeControl, y = prop, fill = Termination)) + 
+  geom_col(position = "Dodge") + 
+  scale_x_discrete()
+```
+## Evaluated games    
+
+
+## Test Dependencies
+```{r}
+df_eval <- df %>% select(c('TimeControl', 'Evaluation', 'sum'))
+df_eval <- df_eval %>% group_by(TimeControl, Evaluation) %>%
+  summarise(sum = sum(sum), .groups = "drop")
+df_eval <- df_eval %>% group_by(TimeControl) %>%
+  mutate(prop = sum(sum)) %>%
+  ungroup() %>%
+  mutate(prop = sum / prop * 100)
+df_eval %>% ggplot(aes(x = TimeControl, y = prop, fill = Evaluation)) + 
+  geom_col(position = "fill") + 
+  scale_x_discrete()
+df_eval %>% filter(Evaluation == "Yes") %>%
+  ggplot(aes(x = TimeControl, y = sum, fill = TimeControl)) + 
+  geom_col(position = "dodge") + 
+  scale_x_discrete()
+# All 60 + 0, 180 + 0, 300 + 0, 600 + 0 seems to have enough samples. 180+2 to compare with the 180 + 0 time control
+
+# Test the dependency between evaluation and time control
+
+# There is a relationship between the proportion of evaluation and time control.
+tab <- cbind(matrix(filter(df_eval, Evaluation == "Yes")$sum), matrix(filter(df_eval, Evaluation == "No")$sum))
+rownames(tab) <- c('60+0', '180+0', '300+0', '600+0', '180+2', '120+1', '300+3')
+colnames(tab) <- c(1, 0)
+chisq.test(tab)
+
+df_eval <- df %>% select(c('Decisive', 'Evaluation', 'sum'))
+df_eval <- df_eval %>% group_by(Decisive, Evaluation) %>%
+  summarise(sum = sum(sum), .groups = "drop")
+df_eval <- df_eval %>% group_by(Decisive) %>%
+  mutate(full_sum = sum(sum)) %>%
+  ungroup() %>%
+  mutate(prop = sum / full_sum * 100)
+df_eval %>% ggplot(aes(x = Decisive, y = prop, fill = Evaluation)) + 
+  geom_col(position = "fill") + 
+  scale_x_discrete()
+df_eval %>% filter(Evaluation == "Yes") %>%
+  ggplot(aes(x = Decisive, y = prop, fill = Evaluation)) + 
+  geom_col(position = "dodge") + 
+  scale_x_discrete()
+# There is a statistical significance in the difference in annotated games. more decisive games were evaluated in lichess.
+tab <- cbind(matrix(filter(df_eval, Evaluation == "Yes")$sum), matrix(filter(df_eval, Evaluation == "No")$sum))
+res = prop.test(x = filter(df_eval, Evaluation == "Yes")$sum, n = filter(df_eval, Evaluation == "Yes")$full_sum)
+res
+```
+
